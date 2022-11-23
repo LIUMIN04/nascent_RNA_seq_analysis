@@ -1,0 +1,76 @@
+#take 3'CB as example
+awk '$1=="Chr1" && $6=="+"' 3CB.combined.bed | uniq -c > Chr1.plus.txt
+awk '$1=="Chr1" && $6=="-"' 3CB.combined.bed | uniq -c > Chr1.minus.txt
+awk '$1=="Chr2" && $6=="+"' 3CB.combined.bed | uniq -c > Chr2.plus.txt
+awk '$1=="Chr2" && $6=="-"' 3CB.combined.bed | uniq -c > Chr2.minus.txt
+awk '$1=="Chr3" && $6=="+"' 3CB.combined.bed | uniq -c > Chr3.plus.txt
+awk '$1=="Chr3" && $6=="-"' 3CB.combined.bed | uniq -c > Chr3.minus.txt
+awk '$1=="Chr4" && $6=="+"' 3CB.combined.bed | uniq -c > Chr4.plus.txt
+awk '$1=="Chr4" && $6=="-"' 3CB.combined.bed | uniq -c > Chr4.minus.txt
+awk '$1=="Chr5" && $6=="+"' 3CB.combined.bed | uniq -c > Chr5.plus.txt
+awk '$1=="Chr5" && $6=="-"' 3CB.combined.bed | uniq -c > Chr5.minus.txt
+
+
+############################################################
+#call_peak in R
+library(pracma)
+files<-list.files(pattern="Chr")
+i=1
+while(i<=length(files)){
+  d1<-read.table(files[i])
+  peak<-findpeaks(d1[,1],threshold=5)
+  peaks.d<-d1[c(peak[,2]),]
+  nm<-paste("3CB.SS.",files[i],sep="")
+  write.table(peaks.d,nm,row.names=F)
+  i=i+1
+}
+############################################################
+
+
+
+#then peaks from different chromasome were merged, and get the sequence information of predicted splice sites
+for i in *SS.*txt;do sed -i "1d" $i;done
+for i in *SS.*plus.txt;do sed 's/"//g' $i | awk '{print $2,$4-2,$4+2,$5,$6,$7}' OFS="\t" > ${i/txt/}bed;done
+for i in *SS.*minus.txt;do sed 's/"//g' $i | awk '{print $2,$3-2,$3+2,$5,$6,$7}' OFS="\t" > ${i/txt/}bed;done
+cat *bed > 3CB.PREDICTED.SS.bed
+bedtools getfasta -fi /public/genome/arabidopsis/tair10/TAIR10_chr_all.fas -bed 3CB.PREDICTED.SS.bed -s -name -tab | paste 3CB.PREDICTED.SS.bed - > 3CB.PREDICTED.SS.bed.seq
+
+#chose splice sites which meet the splice rule "GU-AG"
+awk '$8~'/..GT/' || $8~'/AG../'' 3CB.PREDICTED.SS.bed.seq > predicted.SS.bed.seq
+cut -f 1,2,3,6,8 predicted.SS.bed.seq | sort > predicted.SS.list
+
+
+#filtering predicted SS by a cutoff of peak subimit density/up or down50 density >=5
+awk '{if($6=="+"){print $1,$2-49,$2+1,$4,$5,$6,$8}else{print $1,$3-1,$3+49,$4,$5,$6,$8}}' OFS="\t" predicted.SS.bed.seq > predicted.SS.up50.bed
+awk '{if($6=="+"){print $1,$2+2,$2+52,$4,$5,$6,$8}else{print $1,$3-52,$3-2,$4,$5,$6,$8}}' OFS="\t" predicted.SS.bed.seq > predicted.SS.down50.bed
+
+coverageBed -a predicted.SS.up50.bed -b ../3CB.combined.bed -s > 3CB.predicted.SS.up50.count
+coverageBed -a predicted.SS.down50.bed -b ../3CB.combined.bed -s > 3CB.predicted.SS.down50.count
+cut -f 8 3CB.predicted.SS.up50.count > 3CB.predicted.SS.up50
+cut -f 8 3CB.predicted.SS.down50.count > 3CB.predicted.SS.down50
+
+awk '{if($6=="+"){print $1,$3,$3+1,$4,$5,$6,$7}else{print $1,$2-1,$2,$4,$5,$6,$7}}' OFS="\t" predicted.SS.up50.bed > predicted.SS.onebase.bed &
+coverageBed -a predicted.SS.onebase.bed -b ../3CB.combined.bed -s > 3CB.predicted.SS.onebase.count
+
+cut -f 1-8 3CB.predicted.SS.onebase.count | paste - 3CB.predicted.SS.up50 3CB.predicted.SS.down50 | awk '{print $1,$2,$3,$6,$7,$8*50/($9+1),$8*50/($10+1)}' OFS="\t" > 3CB.50.density.ratio.txt
+
+awk '$5~'/AG../' || $5~'/..GT/' && $6>=5 && $7>=5' 3CB.50.density.ratio.txt > 3CB.predicted.SS.txt2
+
+
+
+
+##detected 5'SS and 3'SS from CB, Nuc and total
+#5'SS
+awk '{if($6=="+"){print $1,$2-2,$2+2,$4,$5,$6}else{print $1,$3-2,$3+2,$4,$5,$6}}' OFS="\t" all.filter5.filter.intron.bed > all.intron.5SS.4bp.bed
+bedtools getfasta -fi /public/genome/arabidopsis/tair10/TAIR10_chr_all.fas -bed all.intron.5SS.4bp.bed -name -s -tab | paste all.intron.5SS.4bp.bed - > all.intron.5SS.4bp.bed.seq
+awk '$8~'/..GT/'' all.intron.5SS.4bp.bed.seq | cut -f 1,2,3,6,8 | sort |uniq > all.intron.GT.5ss.txt
+
+
+#3'SS
+awk '{if($6=="+"){print $1,$3-2,$3+2,$4,$5,$6}else{print $1,$2-2,$2+2,$4,$5,$6}}' OFS="\t" all.filter5.filter.intron.bed  > all.intron.3SS.4bp.bed
+bedtools getfasta -fi /public/genome/arabidopsis/tair10/TAIR10_chr_all.fas -bed all.intron.3SS.4bp.bed -name -s -tab | paste all.intron.3SS.4bp.bed - > all.intron.3SS.4bp.bed.seq
+awk '$8~'/AG../'' all.intron.3SS.4bp.bed.seq | cut -f 1,2,3,6,8 | sort |uniq > all.intron.AG.3ss.txt
+
+awk '{if($4=="+"){print $1,$2+1,$2+2,$4,$5}else{print $1,$3-2,$3-1,$4,$5}}'  OFS="\t" ../all.intron.GT.5ss.txt | sort > all.intron.GT.5ss.list 
+awk '{if($4=="+"){print $1,$2+1,$2+2,$4,$5}else{print $1,$3-2,$3-1,$4,$5}}'  OFS="\t" ../all.intron.AG.3ss.txt | sort > all.intron.AG.3ss.list 
+
