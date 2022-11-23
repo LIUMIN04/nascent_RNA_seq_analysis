@@ -1,0 +1,11 @@
+#tss
+A<-list.files(pattern="norm.txt")
+j<-length(A)
+i=1
+while(i<=j){
+  a<-read.table(A[i])
+  u<-matrix(a[,3],ncol=200,byrow=T)
+  rownames(u)<-unique(a[,1])
+  b<-paste(substr(A[i],1,nchar(A[i])-8),"matrix.txt",sep="")
+  write.table(u,b)
+  i=i+1}
