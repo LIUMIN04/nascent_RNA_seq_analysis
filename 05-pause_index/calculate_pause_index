@@ -1,0 +1,88 @@
+#genes longer than 1kb are used for pause analysis
+awk '$3-$2>1000' Most.abundant.transcript.rm.fusion.bed > Most.abundant.transcript.rm.fusion.1kb.bed
+
+#the promoter proximal (-150 ~ +150 from TSS) , genebody (+200 from TSS ~ -100 from PAS) and terminator (+1~200 from PAS) regions are extracted
+awk '{if($6=="+"){print $1,$2-150,$2+150,$4,1,$6}else{print $1,$3-150,$3+150,$4,1,$6}}' OFS="\t" Most.abundant.transcript.rm.fusion.1kb.bed > promoter.bed 
+awk '{if($6=="+"){print $1,$2+200,$3-100,$4,1,$6}else{print $1,$2+100,$3-200,$4,1,$6}}' OFS="\t" Most.abundant.transcript.rm.fusion.1kb.bed > genebody.bed 
+awk '{if($6=="+"){print $1,$3,$3+200,$4,1,$6}else{print $1,$2-200,$2,$4,1,$6}}' OFS="\t" Most.abundant.transcript.rm.fusion.1kb.bed > PAS.bed
+
+
+#promoter proximal peak count
+awk '$6=="+"' promoter.bed > promoter.plus.bed
+awk '$6=="-"' promoter.bed > promoter.minus.bed
+bedtools makewindows -b promoter.plus.bed -w 50 -s 5 -i srcwinnum | sort -k1,1 -k2,2n | tr "_" "\t" | awk '$3-$2==50' > promoter.plus.shift5.51win.bed
+bedtools makewindows -b promoter.minus.bed -w 50 -s 5 -i srcwinnum | sort -k1,1 -k2,2n | tr "_" "\t" | awk '$3-$2==50' > promoter.minus.shift5.51win.bed
+awk 'BEGIN{OFS="\t"}{$6="+";print $0}' promoter.plus.shift5.51win.bed > promoter.plus.shift5.51win.strand.bed
+awk 'BEGIN{OFS="\t"}{$6="-";print $0}' promoter.minus.shift5.51win.bed > promoter.minus.shift5.51win.strand.bed
+cut -f 5 promoter.minus.shift5.51win.strand.bed | tac > minus.order
+paste minus.order promoter.minus.shift5.51win.strand.bed | awk '{print $2,$3,$4,$5,$1,$7}' OFS="\t" > promoter.minus.shift5.51win.strand.bed2
+cat promoter.plus.shift5.51win.strand.bed promoter.minus.shift5.51win.strand.bed2 | sort -k1,1 -k2,2n  > promoter.shift.51bin.bed
+rm -f *plus* *minus* 
+
+for i in *bed;do coverageBed -a ~/PATH/promoter.shift.51bin.bed  -b $i -s |sort -k4,4 k7,7nr -k5,5n | awk '!a[$4]++' > ${i/bed/}.promoter.peak.count;done
+
+
+#gene body count
+for i in *bed;do coverageBed -a ~/PATH/genebody.bed  -b $i -s > ../../pausing/${i/bed/}genebody.count;done
+
+#terminator count
+for i in *bed;do coverageBed -a ~/PATH/PAS.bed  -b $i -s > ../../pausing/${i/bed/}PAS.count;done
+
+
+#put promoter proximal peak read count, genebody read count, terminator read count into one file
+cut -f 4,7,9 ${sample}.promoter.peak.count > ${sample}.promoter.peak.tmp
+cut -f 7,9 ${sample}.genebody.count > ${sample}.genebody.tmp
+cut -f 7,9 ${sample}.PAS.count > ${sample}.PAS.tmp
+paste ${sample}.promoter.peak.tmp ${sample}.genebody.tmp ${sample}.PAS.tmp > ${sample}.3region.count
+
+
+
+#######################################################################################################
+#R software is used to calculate 5'PI, 3'PI and do Fisher's extract test 
+
+require(dplyr)
+
+setwd("PATH")
+
+files<-list.files(pattern="3region.count")
+i=1
+while(i<=length(files)){
+  data<-read.table(files[i],head=F)
+  colnames(data)<-c("gene","pp","ppl","gb","gbl","pas","pasl")
+  data<-mutate(data,pp.u=round((pp+gb)*ppl/(ppl+gbl)),gb.u1=round((pp+gb)*gbl/(ppl+gbl)),pi5=(pp/ppl)/(gb/gbl),
+             pas.u=round((pas+gb)*pasl/(pasl+gbl)),gb.u2=round((pas+gb)*gbl/(pasl+gbl)),pi3=(pas/pasl)/(gb/gbl))
+
+  #5'PI
+  a<-1
+  b<-length(data[,1])
+
+  while(a<=b){
+    x<-c(data[a,2],data[a,4],data[a,8],data[a,9])
+    dim(x)<-c(2,2)
+    data$pvalue.5[a]<-fisher.test(x)$p.value
+    a=a+1
+  }
+
+  data$qvalue.5<-p.adjust(data$pvalue.5,method="BH",n=b)
+
+  #3'PI
+  a<-1
+  b<-length(data[,1])
+
+  while(a<=b){
+    x<-c(data[a,6],data[a,4],data[a,11],data[a,12])
+    dim(x)<-c(2,2)
+    data$pvalue.3[a]<-fisher.test(x)$p.value
+    a=a+1
+  }
+
+  data$qvalue.3<-p.adjust(data$pvalue.3,method="BH",n=b)
+
+  f.name<-gsub("3region.count","pause.test.csv",files[i])
+
+  write.csv(data,f.name,row.names = F)
+
+  i=i+1
+}
+
+#######################################################################################################
