@@ -1,0 +1,32 @@
+##detecting transcripts by findpeaks in homertools (pNET, GRO and 3'CB). Take pNET for example.
+makeTagDirectory ./pNET pNET.bed -format bed -force5th
+findPeaks ./pNET -style groseq -o pNET.txt -tssFold 5 -bodyFold 2 -minBodySize 500
+grep -v "#" pNET.txt | awk '{print $2,$3,$4,$1,1,$5}' OFS="\t" > pNET.homer.bed
+#select unannotated transcripts
+intersectBed -a pNET.homer.bed -b atRTD3_07082020.extended.bed -s -wao | awk '$7=="."' | cut -f 1-6 > pNET.unannotated.bed
+
+#detecting transcripts by stringtie (CB,Nuc,total)
+stringtie CB.combined.bam -G atRTD3_TS_21Feb22_transfix.gtf --rf -o ./CB_stringtie/CB_stringtie.gtf -p 16 -A CB-gene.tab -B
+awk '$3=="transcript"' CB_stringtie.gtf | awk '{print $1,$4-1,$5,$7}' OFS="\t" | awk '{print $1,$2,$3,$1"_"$2"_"$3,1,$4}' OFS="\t" | awk '!a[$0]++' > CB_stringtie.bed
+#select unannotated transcripts
+intersectBed -a CB_stringtie.bed -b atRTD3_07082020.extended.bed -s -wao | awk '$7=="."' | cut -f 1-6 > CB.unannotated.bed
+
+#merged all unannotated transcripts
+cat *unannotated.bed | sort -k1,1 -k2,2n | mergeBed -i - -s -d 50 -c 4,5,6 -o first,first,first | awk '{print $1,$2,$3,$1"_"$2+1"_"$3,$5,$6}' OFS="\t" > novel.merge.bed
+
+
+#filtering aritifical antisense
+awk '!a[$1,$2,$3,$4]++' all.merge.intron.bed | awk '{print $1,$2,$3,$1"_"$2"_"$3"_"$4,$5,$4}' OFS="\t" > all.detected.intron.bed
+awk '{if($6=="+"){print $1,$2,$2+2,$4,$5,$6}else{print $1,$3-2,$3,$4,$5,$6}}' OFS="\t" all.detected.intron.bed > 5ss.bed
+bedtools getfasta -fi /public/genome/arabidopsis/tair10/TAIR10_chr_all.fas -bed 5ss.bed -s -name -tab | paste 5ss.bed - > 5ss.bed.seq
+awk '{if($6=="-"){print $1,$2,$2+2,$4,$5,$6}else{print $1,$3-2,$3,$4,$5,$6}}' OFS="\t" all.detected.intron.bed > 3ss.bed
+bedtools getfasta -fi TAIR10_chr_all.fas -bed 3ss.bed -s -name -tab | paste 3ss.bed - > 3ss.bed.seq
+paste 5ss.bed.seq 3ss.bed.seq | cut -f 1-6,8,16 | awk '$7=="CT" && $8=="AC"' > wrong.splicing.bed
+intersectBed -a novel.merge.bed -b wrong.splicing.bed -s -wao | awk '$7=="."' > novel.merge.filter.bed
+
+#calculate the read count for novel transcript (pNET, GRO and 3'CB)
+for i in *bed;do coverageBed -a novel.merge.filter.bed -b $i -s > ${i/bed/}novel.transcript.count;done
+
+#calculate the read count for novel transcript (CB, Nuc and total)
+/software/subread-1.6.5-Linux-x86_64/bin/featureCounts -T 16 -t transcript -g gene_id -p -s 2 -a novel.merge.filter.gtf -o CNT.novel.count CB.bam nuclei.bam total.bam
+
