@@ -1,0 +1,80 @@
+#require homerTools, BBMAP, cutadapt, STAR, bedtools, samtools
+
+#pNET,3'CB and GRO
+#trim 70bp of 3'end
+homerTools trim -3 70 ${sample}.R1.fastq.gz
+homerTools trim -3 70 ${sample}.R2.fastq.gz
+mv ${sample}.R1.fastq.gz.trimmed ${sample}.R1.trim.fq
+mv ${sample}.R2.fastq.gz.trimmed ${sample}.R2.trim.fq
+
+#remove PCR duplication
+clumpify.sh in=${sample}.R1.trim.fq in2=${sample}.R2.trim.fq out=${sample}.R1.rmdup.fq out2=${sample}.R2.rmdup.fq dedupe addcount subs=0
+cutadapt -j 16 -a TGGAATTCTCGGGTG -A GATCGTCGGACTGTA -z -O 5 -e 0.1 -m 20 -q 20 -o ${sample}.clean.R1.fq.gz -p ${sample}.clean.R2.fq.gz ${sample}.R1.rmdup.fq ${sample}.R2.rmdup.fq
+
+#filtering sequences mapping to rRNA. STAR-rRNA was produced by "STAR --runMode genomeGenerate", and it contains indexed files for mapping.
+STAR --genomeDir  ~/PATH/STAR-rRNA/ --readFilesCommand zcat --readFilesIn ${sample}.clean.R1.fq.gz ${sample}.clean.R2.fq.gz --runThreadN 16 --clip3pNbases 4 --clip5pNbases 4 --outFileNamePrefix ./${sample}.rmrRNA. --outReadsUnmapped Fastx
+mv ${sample}.rmrRNA.Unmapped.out.mate1 ${sample}.rmrRNA.R1.fq
+mv ${sample}.rmrRNA.Unmapped.out.mate2 ${sample}.rmrRNA.R2.fq
+
+#filtering sequences mapping to Plastd genome. STAR_ChrCM was produced by "STAR --runMode genomeGenerate", and it contains indexed files for mapping.
+STAR --genomeDir ~/PATH/STAR_ChrCM/ --runThreadN 16 --clip3pNbases 4 --clip5pNbases 4 --readFilesIn ${sample}.rmrRNA.R1.fq  ${sample}.rmrRNA.R2.fq --outFileNamePrefix ./${sample}.rmChrCM. --outReadsUnmapped Fastx
+mv ${sample}.rmChrCM.Unmapped.out.mate1 ${sample}.rmChrCM.R1.fq
+mv ${sample}.rmChrCM.Unmapped.out.mate2 ${sample}.rmChrCM.R2.fq
+
+
+#mapping to nuclear genome. STAR-nuclear was produced by "STAR --runMode genomeGenerate", and it contains indexed files for mapping.
+STAR --genomeDir ~/PATH/STAR-nuclear/ --runThreadN 16 --clip3pNbases 4 --clip5pNbases 4 --readFilesIn ${sample}.rmChrCM.R1.fq ${sample}.ChrCM.R2.fq --outFileNamePrefix ./${sample}. --outSAMtype BAM Unsorted --outFilterMismatchNmax 2 --outFilterMultimapNmax 1
+
+#sort bam file byname & bam to bedpe
+samtools sort -@16 -n ${sample}.bam > ${sample}.sortbyname.bam
+bamToBed -i ${sample}.sortbyname.bam -bedpe -mate1 > ${sample}.sortbyname.bedpe
+
+#extract the 5'end of read2 for pNET and 3'CB
+awk '{if($9=="+"){print ${sample},$6-1,$6,"onebase",1,"+"}else{print ${sample},$5,$5+1,"onebase",1,"-"}}' OFS="\t" ${sample}.sortbyname.bedpe | sort -k1,1 -k2,2n > ${sample}.onebase.bed
+
+#extract the 5'end of read1 for GRO
+awk '{if($9=="+"){print ${sample},$2,$2+1,"onebase",1,"+"}else{print ${sample},$3-1,$3,"onebase",1,"-"}}' OFS="\t" ${sample}.sortbyname.bedpe | sort -k1,1 -k2,2n > ${sample}.onebase.bed
+
+#filtering reads mapped on snoRNA, snRNA, tRNA, rRNA
+subtractBed -a ${sample}.onebase.bed -b  ~/genome/araport11/araport11.ncRNA100.bed -s > ${sample}.final.bed
+
+
+
+
+##############################################################################################
+#CB RNA-seq data pocessing
+#filtering low quanlity data and adapter
+cutadapt -j 16 -a AGATCGGAAGAGCACACGT -A AGATCGGAAGAGCGTCGTGT -z -O 5 -e 0.1 -m 20 -q 20 -o ${sample}.clean.R1.fq.gz -p ${sample}.clean.R2.fq.gz ${sample}.R1.fastq.gz ${sample}.R2.fastq.gz
+
+#filtering sequences mapping to rRNA
+STAR --genomeDir  ~/PATH/STAR-rRNA/ --readFilesCommand zcat --readFilesIn ${sample}.clean.R1.fq.gz ${sample}.clean.R2.fq.gz --runThreadN 16 --outFileNamePrefix ./${sample}.rmrRNA --outReadsUnmapped Fastx
+mv ${sample}.rmrRNAUnmapped.out.mate1 ${sample}.rmrRNA.R1.fq
+mv ${sample}.rmrRNAUnmapped.out.mate2 ${sample}.rmrRNA.R2.fq
+
+#filtering sequences mapping to Plastd genome
+STAR --genomeDir ~/PATH/STAR_ChrCM/ --runThreadN 16 --readFilesIn ${sample}.rmrRNA.R1.fq  ${sample}.rmrRNA.R2.fq --outFileNamePrefix ./${sample}.rmChrCM. --outReadsUnmapped Fastx
+mv ${sample}.rmChrCM.Unmapped.out.mate1 ${sample}.rmChrCM.R1.fq
+mv ${sample}.rmChrCM.Unmapped.out.mate2 ${sample}.rmChrCM.R2.fq
+
+
+#mapping to nuclear genome
+STAR --genomeDir ~/PATH/STAR-nuclear/ --runThreadN 16 --readFilesIn ${sample}.rmChrCM.R1.fq ${sample}.ChrCM.R2.fq --outFileNamePrefix ./${sample}. --outSAMtype BAM Unsorted --outFilterMismatchNmax 2 --outFilterMultimapNmax 1
+
+
+
+
+
+###########################################################################################
+#Nuc and total
+#filtering low quanlity data and adapter
+cutadapt -j 16 -a AGATCGGAAGAGCACACGT -A AGATCGGAAGAGCGTCGTGT -z -O 5 -e 0.1 -m 20 -q 20 -o ${sample}.clean.R1.fq.gz -p ${sample}.clean.R2.fq.gz ${sample}.R1.fastq.gz ${sample}.R2.fastq.gz
+
+
+#filtering sequences mapping to Plastd genome
+STAR --genomeDir ~/PATH/STAR_ChrCM/ --runThreadN 16 --readFilesCommand zcat --readFilesIn ${sample}.clean.R1.fq.gz ${sample}.clean.R2.fq.gz  --outFileNamePrefix ./${sample}.rmChrCM. --outReadsUnmapped Fastx
+mv ${sample}.rmChrCM.Unmapped.out.mate1 ${sample}.rmChrCM.R1.fq
+mv ${sample}.rmChrCM.Unmapped.out.mate2 ${sample}.rmChrCM.R2.fq
+
+
+#mapping to nuclear genome
+STAR --genomeDir ~/PATH/STAR-nuclear/ --runThreadN 16 --readFilesIn ${sample}.rmChrCM.R1.fq ${sample}.ChrCM.R2.fq --outFileNamePrefix ./${sample}. --outSAMtype BAM Unsorted --outFilterMismatchNmax 2 --outFilterMultimapNmax 1
