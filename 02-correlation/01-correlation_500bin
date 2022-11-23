@@ -1,0 +1,48 @@
+#read count in each 500bp bin was calculated by coverageBed from BEDTOOLS
+for i in *bed;do coverageBed -a ~/genome/tair10/tair10.genome.500bin.bed -b $i -s > ${i/bed/}count;done &
+for i in *count;do cut -f 7 $i > ${i/count/}txt;done
+paste *txt > all.500bin.txt
+ls *count| sed 's/.count//g' | awk '{printf $0"\t"}' |cat - all.500bin.txt > all.500bin.with.head.txt
+
+
+########################################################################################
+#pearson corrleation and PCA anlaysis were conducted in R
+require(dplyr)
+require(pheatmap)
+require(ggplot2)
+require(DESeq2)
+require(cowplot)
+require(gplots)
+
+breaks=seq(0,1,by=0.01)
+mycol <- colorpanel(n=length(breaks)-1,low="SteelBlue",mid="white",high="Brown1")
+
+
+setwd("PATH")
+
+a1l<-read.table("all.500bin.with.head.txt",head=T)
+all<-all[which(rowSums(all)>5),]
+#nomolization by VST method in "DESeq2"
+vsd<-vst(as.matrix(all))
+#heatmap of pearson correlation coefficient
+pheatmap(cor(vsd), display_numbers = T, number_format = "%.2f", number_color = "black", border_color = NA)
+
+#PCA anlaysis
+pcadata <- prcomp(t(vsd))
+plot(pcadata$x[, 1], pcadata$x[, 2])
+pca.data <- data.frame(Sample = rownames(pcadata$x), X = pcadata$x[, 1], Y = pcadata$x[, 2],
+                       method = c("3CB","3CB","3CB","CB","CB","CB","GRO_pure","GRO_pure","GRO_pure","Nuc","pNET_pure","pNET_pure","pNET_pure","total","chrNET","chrNET","chrNET","GRO_crude","GRO_crude","GRO_crude","pNET_crude","pNET_crude","pNET_crude"))
+summary(pcadata)
+p<-ggplot(pca.data, aes(X, Y, colour = method)+
+  geom_point(size = 3,shape=17) +
+  xlab(paste0("PC1: ", "36.01", "% variance")) +
+  ylab(paste0("PC2: ", "13.39", "% variance")) +
+  theme(panel.grid.minor = element_blank(), panel.background = element_blank(), panel.border = element_rect(fill = NA))
+save_plot("all_PCA.pdf", p)
+
+#####################################################################################################
+
+
+
+
+
