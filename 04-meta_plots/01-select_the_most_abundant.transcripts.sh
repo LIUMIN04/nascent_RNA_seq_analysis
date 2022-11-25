@@ -14,8 +14,8 @@ join -1 1 -2 1 Most.abundant.transcript.rm.fusion.txt atRTD3.bed.sort | awk '{pr
 # The up- and down-stream 1kb of TSS and PAS is divided into 10bp bin
 #TSS
 awk '{if($6=="+"){$7=$2-1000;$8=$2+1000;print$1,$7,$8,$4,$5,$6}else{$7=$3-1000;$8=$3+1000;print$1,$7,$8,$4,$5,$6}}' OFS="\t" Most.abundant.transcript.rm.fusion.bed > TSS1KB.bed
-grep + TSS1KB.bed > TSS1KB.plus.bed
-grep - TSS1KB.bed > TSS1KB.minus.bed
+awk '$6=="+"' TSS1KB.bed > TSS1KB.plus.bed
+awk '$6=="-"' TSS1KB.bed > TSS1KB.minus.bed
 bedtools makewindows -b TSS1KB.plus.bed -n 200 -i srcwinnum | tr "_" "\t" | awk 'BEGIN{OFS="\t"}{$6="+";print $0}' > TSS1KB.plus.bin.bed
 bedtools makewindows -b TSS1KB.minus.bed -n 200 -i srcwinnum | tr "_" "\t" | awk 'BEGIN{OFS="\t"}{$6="-";print $0}' > TSS1KB.minus.bin.bed
 awk '{print $5}' TSS1KB.minus.bin.bed | tac > minus.tss1kb.order
@@ -25,8 +25,8 @@ cat TSS1KB.plus.bin.bed TSS1KB.minus.bin2.bed | sort -k1,1 -k2,2n > TSS.200bin.b
 
 #PAS
 awk '{if($6=="+"){$7=$3-1000;$8=$3+1000;print$1,$7,$8,$4,$5,$6}else{$7=$2-1000;$8=$2+1000;print$1,$7,$8,$4,$5,$6}}' OFS="\t" Most.abundant.transcript.rm.fusion.bed > PAS1KB.bed
-grep + PAS1KB.bed > PAS1KB.plus.bed
-grep - PAS1KB.bed > PAS1KB.minus.bed
+awk '$6=="+"' PAS1KB.bed > PAS1KB.plus.bed
+awk '$6=="-"' PAS1KB.bed > PAS1KB.minus.bed
 bedtools makewindows -b PAS1KB.plus.bed -n 200 -i srcwinnum | tr "_" "\t" | awk 'BEGIN{OFS="\t"}{$6="+";print $0}' > PAS1KB.plus.bin.bed
 bedtools makewindows -b PAS1KB.minus.bed -n 200 -i srcwinnum | tr "_" "\t" | awk 'BEGIN{OFS="\t"}{$6="-";print $0}' > PAS1KB.minus.bin.bed
 awk '{print $5}' PAS1KB.minus.bin.bed | tac > minus.tts1kb.order
