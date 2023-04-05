@@ -13,8 +13,10 @@ grep -f wrong.list2 all.filter5.intron.name.bed > wrong.list.intron.bed
 sort -k4,4 -k7,7nr all.filter5.intron.name.bed | awk '!a[$4]++' > all.filter5.filter.intron.bed
 
 #compaired with annotated introns in atRTD3 (intron.uniq2.bed), and get the unannotated introns. 
-subtractBed -a all.filter5.filter.intron.bed -b intron.uniq2.bed -s | sort -k1,1 -k2,2n > unannotated.intron.bed
-
+awk '{print $1"_"$2"_"$3"_"$6}' intron.uniq2.bed | sort > annotated.splicing.list 
+awk '{print $1"_"$2"_"$3"_"$6}' all.filter5.filter.intron.bed | sort > all.filter5.filter.intron.splicing.list 
+comm -23 all.filter5.filter.intron.splicing.list annotated.splicing.list > unannotated.intron.list
+sed 's/_/\t/g' unannotated.intron.list | paste - unannotated.intron.list | awk '{print $1,$2,$3,$1"_"$2"_"$3,1,$4}' OFS="\t" | sort -k1,1 -k2,2n > unannotated.intron.bed
 
 #CB splice events
 cut -f 4 all.filter5.filter.intron.bed | sort > all.intron.list
